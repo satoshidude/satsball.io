@@ -11,7 +11,8 @@ WorkingDirectory=/home/webmaster/satsball
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=3432
-Environment=PUBLIC_ORIGIN=https://satsball.jointfactory.io
+Environment=PUBLIC_ORIGIN=https://satsball.io
+Environment=ALLOWED_ORIGINS=https://satsball.jointfactory.io
 Environment=DATA_DIR=/home/webmaster/satsball-data
 ExecStart=/usr/bin/node /home/webmaster/satsball/server.mjs
 Restart=on-failure

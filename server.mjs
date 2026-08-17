@@ -143,6 +143,10 @@ app.set('trust proxy', 'loopback');
 app.use(express.json({ limit: '8kb' }));
 
 const publicOrigin = process.env.PUBLIC_ORIGIN;
+const allowedOrigins = new Set([
+  publicOrigin,
+  ...(process.env.ALLOWED_ORIGINS || '').split(',').map((origin) => origin.trim()),
+].filter(Boolean));
 const monitoringUser = process.env.MONITORING_USER || config.match(/^MONITORING_USER=(.+)$/m)?.[1]?.trim() || 'operator';
 const monitoringPassword = process.env.MONITORING_PASSWORD || config.match(/^MONITORING_PASSWORD=(.+)$/m)?.[1]?.trim();
 const minWithdrawalSats = Number(process.env.MIN_WITHDRAWAL_SATS || 100);
@@ -207,8 +211,8 @@ function rateLimit(bucket, windowSeconds, limit) {
 }
 
 app.use('/api', (req, res, next) => {
-  if (req.method === 'GET' || !publicOrigin) return next();
-  if (req.headers.origin !== publicOrigin) return res.status(403).json({ error: 'Invalid request origin' });
+  if (req.method === 'GET' || allowedOrigins.size === 0) return next();
+  if (!allowedOrigins.has(req.headers.origin)) return res.status(403).json({ error: 'Invalid request origin' });
   next();
 });
 
@@ -708,7 +712,7 @@ app.post('/api/deposits', rateLimit('deposit-create', 600, 3), async (req, res) 
   try {
     const sessionId = guestSession(req, res);
     const amount = Number(req.body?.amount);
-    if (![10, 50, 100, 500].includes(amount) || amount > maxDepositSats) return res.status(400).json({ error: `Choose a deposit of 10, 50, 100 or 500 sats (maximum ${maxDepositSats} sats per transaction)` });
+    if (![10, 50, 100, 250, 500].includes(amount) || amount > maxDepositSats) return res.status(400).json({ error: `Choose a deposit of 10, 50, 100, 250 or 500 sats (maximum ${maxDepositSats} sats per transaction)` });
     const now = nowSeconds();
     reservationId = `creating:${crypto.randomUUID()}`;
     db.exec('BEGIN IMMEDIATE');
