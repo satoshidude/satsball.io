@@ -79,8 +79,9 @@
             <h2 id="depositTitle">Insert Sats</h2>
             <p class="deposit-modal__hint" id="depositHint">Choose an amount</p>
             <div class="deposit-modal__amounts" id="depositAmounts">
+              <button type="button" data-amount="10">10</button>
+              <button type="button" data-amount="50">50</button>
               <button type="button" data-amount="100">100</button>
-              <button type="button" data-amount="250">250</button>
               <button type="button" data-amount="500">500</button>
             </div>
             <section class="invoice" id="invoicePanel" hidden>
@@ -162,9 +163,21 @@
           </li>
         </ol>
       </div>
+      <aside class="site-footer__legal" aria-labelledby="legal-notice-title">
+        <p class="section-label">Disclaimer</p>
+        <h2 id="legal-notice-title">Legal notice</h2>
+        <div class="site-footer__legal-copy">
+          <p><strong>Satsball is an experimental educational and digital art project.</strong> It demonstrates micropayments with Bitcoin Lightning through a browser-based game and serves as a research and development environment for payment technology and interactive media.</p>
+          <p>Satsball is not a bank, financial institution, investment product, escrow service or gambling provider. Lightning payments are real and final; users are solely responsible for the payments they initiate and for complying with the laws applicable to them.</p>
+          <p>The project is provided on an “as is” and “as available” basis, without warranties of any kind. Availability, balances, game results or payouts are not guaranteed. To the fullest extent permitted by applicable law, the operators are not liable for losses or damages arising from use of the project.</p>
+        </div>
+      </aside>
       <div class="site-footer__fineprint">
         <p>Bitcoin Lightning · sats stay linked to your browser balance</p>
-        <a href="#game-machine">Back to the machine ↑</a>
+        <nav class="site-footer__links" aria-label="Project links">
+          <a href="https://github.com/satoshidude/satsball" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a>
+          <a href="#game-machine">Back to the machine ↑</a>
+        </nav>
       </div>
     </footer>
     <script src="/vendor/jsqr.js"></script>

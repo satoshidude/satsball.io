@@ -274,6 +274,7 @@ function scheduleAutoplay(delay) {
 
 function launchBall(targetChannel) {
   state.ball = { x: 660, y: 1080, vx: 0, vy: 0, r: 8.5, phase: 'launch', pathT: 0, targetChannel, collisions: new Set(), escapeDirection: (state.ballIndex + targetChannel) % 2 ? 1 : -1 };
+  if (document.hidden) finishBackgroundBall();
 }
 
 function loadBall() {
@@ -290,7 +291,18 @@ function finishBall(channel) {
     statusEl.textContent = `Ball ${state.ballIndex + 1} / 3`; messageEl.textContent = `Field ${value}. Shoot the next ball manually.`;
     updateUI();
     scheduleAutoplay(550);
-  } else setTimeout(resolveRound, 450);
+  } else if (document.hidden) queueMicrotask(resolveRound);
+  else setTimeout(resolveRound, 450);
+}
+
+// Browsers pause requestAnimationFrame in background tabs. The result of a
+// shot is already fixed by the server, so finish only its visual journey when
+// the page becomes hidden. Manual games then wait for the next shot; autoplay
+// continues through the existing server-authoritative shot sequence.
+function finishBackgroundBall() {
+  const ball = state.ball;
+  if (!ball || ball.phase === 'loaded' || ball.phase === 'caught') return;
+  finishBall(ball.targetChannel);
 }
 
 async function resolveRound() {
@@ -687,5 +699,9 @@ payoutImage.addEventListener('change', () => scanPayoutImage(payoutImage.files?.
 submitPayoutButton.addEventListener('click', submitPayout);
 copyPayoutLnurlButton.addEventListener('click', copyPayoutLnurl);
 payoutModal.addEventListener('close', () => window.clearInterval(payoutPoll));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) finishBackgroundBall();
+  else state.lastTime = performance.now();
+});
 soundToggle.addEventListener('click', () => { state.sound = !state.sound; soundToggle.textContent = state.sound ? 'Ton an' : 'Ton aus'; soundToggle.setAttribute('aria-pressed', String(state.sound)); if (state.sound) tone(440, .07, .02, 'triangle'); });
 updateUI(); loadGuestBalance(); requestAnimationFrame(frame);

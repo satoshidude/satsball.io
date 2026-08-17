@@ -708,7 +708,7 @@ app.post('/api/deposits', rateLimit('deposit-create', 600, 3), async (req, res) 
   try {
     const sessionId = guestSession(req, res);
     const amount = Number(req.body?.amount);
-    if (![100, 250, 500].includes(amount) || amount > maxDepositSats) return res.status(400).json({ error: `Maximum deposit is ${maxDepositSats} sats per transaction` });
+    if (![10, 50, 100, 500].includes(amount) || amount > maxDepositSats) return res.status(400).json({ error: `Choose a deposit of 10, 50, 100 or 500 sats (maximum ${maxDepositSats} sats per transaction)` });
     const now = nowSeconds();
     reservationId = `creating:${crypto.randomUUID()}`;
     db.exec('BEGIN IMMEDIATE');
