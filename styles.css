@@ -322,17 +322,6 @@ html.export-render .machine {
 .steps h2 { margin: 0 0 7px; color: var(--paper); font-size: 28px; line-height: 1; text-transform: uppercase; letter-spacing: .025em; }
 .steps p { max-width: 600px; margin: 0; color: #aeb6c8; font: 500 17px/1.45 "Barlow Condensed", sans-serif; letter-spacing: .015em; }
 .steps strong { color: #e8c761; font-weight: 700; }
-.site-footer__legal {
-  position: relative; width: min(1120px, 100%); margin: 0 auto 52px; padding: 30px 0 0;
-  border-top: 1px solid #384158;
-}
-.site-footer__legal h2 {
-  margin: 0 0 22px; color: var(--paper); font-size: 30px; line-height: 1;
-  letter-spacing: .025em; text-transform: uppercase;
-}
-.site-footer__legal-copy { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(24px, 4vw, 52px); }
-.site-footer__legal-copy p { margin: 0; color: #8f99ad; font: 500 15px/1.55 "Barlow Condensed", sans-serif; letter-spacing: .015em; }
-.site-footer__legal-copy strong { color: #cbd1dd; font-weight: 600; }
 .site-footer__fineprint {
   position: relative; width: min(1120px, 100%); margin: 0 auto; padding-top: 20px; border-top: 1px solid #242b3c;
   display: flex; justify-content: space-between; gap: 24px; color: #747f96; font: 500 11px/1.4 "IBM Plex Mono", monospace; text-transform: uppercase;
@@ -341,6 +330,16 @@ html.export-render .machine {
 .site-footer__links { display: flex; justify-content: flex-end; gap: 24px; }
 .site-footer__fineprint a { color: #929caf; text-decoration: none; }
 .site-footer__fineprint a:hover, .site-footer__fineprint a:focus-visible { color: var(--paper); }
+.site-footer__fineprint .site-footer__disclaimer { color: #ff5b35; }
+.site-footer__fineprint .site-footer__disclaimer:hover, .site-footer__fineprint .site-footer__disclaimer:focus-visible { color: #ff8a70; }
+.legal-page { width: min(760px, calc(100% - 36px)); min-height: calc(100vh - 78px); margin: 0 auto; padding: clamp(58px, 10vw, 110px) 0 80px; }
+.legal-page .section-label { margin-bottom: 16px; }
+.legal-page h1 { margin: 0 0 42px; color: var(--paper); font-size: clamp(54px, 9vw, 92px); line-height: .85; letter-spacing: -.035em; text-transform: uppercase; }
+.legal-page__copy { display: grid; gap: 24px; padding-top: 30px; border-top: 1px solid #384158; }
+.legal-page__copy p { margin: 0; color: #aeb6c8; font: 500 19px/1.55 "Barlow Condensed", sans-serif; letter-spacing: .015em; }
+.legal-page__copy strong { color: #d6dbe6; font-weight: 600; }
+.legal-page__back { display: inline-block; margin-top: 42px; color: var(--gold); font: 600 12px/1 "IBM Plex Mono", monospace; letter-spacing: .08em; text-decoration: none; text-transform: uppercase; }
+.legal-page__back:hover, .legal-page__back:focus-visible { color: var(--paper); }
 @media (max-width: 820px) {
   .site-header__inner { min-height: 64px; grid-template-columns: 1fr auto; }
   .site-header__intro { display: none; }
@@ -348,7 +347,6 @@ html.export-render .machine {
   .machine { width: calc(100vw - 16px); }
   .site-footer__inner { grid-template-columns: 1fr; gap: 52px; margin-bottom: 62px; }
   .site-footer__lead h1 { font-size: clamp(58px, 17vw, 92px); }
-  .site-footer__legal-copy { grid-template-columns: 1fr; gap: 18px; }
   .site-footer__fineprint { flex-direction: column; }
   .site-footer__links { justify-content: flex-start; }
 }

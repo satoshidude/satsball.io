@@ -879,7 +879,7 @@ app.use('/monitoring', monitoringAuth, (_req, res, next) => { res.set('Cache-Con
   express.static(path.join(root, 'monitoring'), { index: 'index.html', dotfiles: 'deny', fallthrough: false }));
 
 const publicFiles = new Map([
-  ['/', 'index.html'], ['/index.html', 'index.html'], ['/game.js', 'game.js'], ['/physics.js', 'physics.js'], ['/styles.css', 'styles.css'],
+  ['/', 'index.html'], ['/index.html', 'index.html'], ['/disclaimer.html', 'disclaimer.html'], ['/game.js', 'game.js'], ['/physics.js', 'physics.js'], ['/styles.css', 'styles.css'],
   ['/favicon.svg', 'favicon.svg'], ['/satsball-edit.png', 'satsball-edit.png'],
   ['/satsball-social-card-v2.png', 'satsball-social-card-v2.png']
 ]);

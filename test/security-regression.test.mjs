@@ -71,6 +71,7 @@ test('session, static boundary, replay protection, ledger and auth limits', asyn
   assert.equal((await request(fixture.origin, '/deploy/satsball.service')).status, 404);
   assert.equal((await request(fixture.origin, '/server.mjs')).status, 404);
   assert.equal((await request(fixture.origin, '/')).status, 200);
+  assert.equal((await request(fixture.origin, '/disclaimer.html')).status, 200);
 
   const forged = await request(fixture.origin, '/api/game/start', { token, method: 'POST', body: {}, requestOrigin: 'https://attacker.invalid' });
   assert.equal(forged.status, 403);
