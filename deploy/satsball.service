@@ -1,0 +1,35 @@
+[Unit]
+Description=Satsball web game
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=webmaster
+Group=webmaster
+WorkingDirectory=/home/webmaster/satsball
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3432
+Environment=PUBLIC_ORIGIN=https://satsball.jointfactory.io
+Environment=DATA_DIR=/home/webmaster/satsball-data
+ExecStart=/usr/bin/node /home/webmaster/satsball/server.mjs
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/home/webmaster/satsball-data
+
+[Install]
+WantedBy=multi-user.target

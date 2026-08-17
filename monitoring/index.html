@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#151108" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <title>Satsball · Zählwerk</title>
+    <link rel="stylesheet" href="monitoring.css" />
+  </head>
+  <body>
+    <main>
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Satsball / Betreiberansicht</p>
+          <h1>Zählwerk</h1>
+        </div>
+        <div class="live"><i></i><span id="updated">wird geladen</span></div>
+      </header>
+
+      <section class="reconciliation" aria-labelledby="balance-title">
+        <div class="section-label"><span>Ledger</span><h2 id="balance-title">Wo die sats stehen</h2></div>
+        <div class="equation">
+          <div><strong id="deposits">–</strong><span>Einzahlungen</span></div>
+          <b>−</b>
+          <div><strong id="withdrawals">–</strong><span>Auszahlungen</span></div>
+          <b>=</b>
+          <div><strong id="outstanding">–</strong><span>Spielerguthaben</span></div>
+          <b>+</b>
+          <div class="house"><strong id="ggr">–</strong><span>Bruttoertrag</span></div>
+        </div>
+        <p class="audit" id="audit">Bilanz wird geprüft …</p>
+      </section>
+
+      <section class="meters" aria-label="Kernkennzahlen">
+        <article class="meter meter--rtp">
+          <span>Auszahlungsquote / RTP</span>
+          <strong id="rtp">–</strong>
+          <div class="meter-track"><i id="rtpBar"></i></div>
+          <small><b id="payouts">–</b> Gewinne aus <b id="stakes">–</b> Einsätzen</small>
+        </article>
+        <article class="meter">
+          <span>Ertrag nach Lightning-Gebühren</span>
+          <strong id="netEarnings">–</strong>
+          <small><b id="fees">–</b> Routing-Gebühren</small>
+        </article>
+        <article class="meter">
+          <span>Runden</span>
+          <strong id="rounds">–</strong>
+          <small><b id="winningRounds">–</b> mit Gewinn · <b id="losingRounds">–</b> ohne Gewinn</small>
+        </article>
+        <article class="meter">
+          <span>Nur Besucher</span>
+          <strong id="visitorsOnly">–</strong>
+          <small>ohne bestätigte Einzahlung</small>
+        </article>
+        <article class="meter">
+          <span>Spieler</span>
+          <strong id="players">–</strong>
+          <small>mit bestätigter sats-Einzahlung · <b id="visitors">–</b> Sessions gesamt · <b id="visitorsToday">–</b> heute · <b id="pageviews">–</b> Aufrufe</small>
+        </article>
+      </section>
+
+      <section class="history" aria-labelledby="history-title">
+        <div class="section-label"><span>30 Tage</span><h2 id="history-title">Tagesprotokoll</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tag</th><th>Nur Besucher</th><th>Spieler</th><th>Runden</th><th>Einsätze</th><th>Gewinne</th><th>RTP</th><th>Ertrag</th></tr></thead>
+            <tbody id="daily"><tr><td colspan="8">Daten werden geladen …</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer>Datensparsam: pseudonyme Cookie-Sessions, keine IP-Adressen, keine User-Agents.</footer>
+    </main>
+    <script src="monitoring.js"></script>
+  </body>
+</html>

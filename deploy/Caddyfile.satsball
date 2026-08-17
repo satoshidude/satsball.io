@@ -1,0 +1,13 @@
+satsball.jointfactory.io {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(self)"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self' https://jointfactory.io; form-action 'self'"
+	}
+	@monitoring path /monitoring /monitoring/* /api/monitoring
+	header @monitoring Cache-Control "no-store"
+	reverse_proxy 127.0.0.1:3432
+}
