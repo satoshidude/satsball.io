@@ -20,8 +20,8 @@ The browser animation only visualizes a result. Stakes, outcomes, payouts, balan
 Requirements: Node.js 22+, npm, an HTTPS reverse proxy, and an NWC connection with invoice and payment permissions.
 
 ```bash
-git clone https://github.com/satoshidude/satsball.git
-cd satsball
+git clone https://github.com/satoshidude/satsball.io.git
+cd satsball.io
 npm ci
 cp config.example.md config.md
 npm test
