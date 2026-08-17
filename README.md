@@ -1,3 +1,5 @@
+![Satsball — Three balls. One winning column. Real sats.](satsball-social-card-v2.png)
+
 # Satsball - Three balls. One winning column. Real sats over Lightning!
 
 Satsball is a browser-based mechanical ball game with real Bitcoin Lightning deposits and withdrawals. A game costs 10 sats, contains three balls, and settles its result against a server-side balance and append-only ledger.
