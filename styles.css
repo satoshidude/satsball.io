@@ -23,10 +23,10 @@ button { font: inherit; }
 .wordmark__logo { display: block; width: 100%; height: auto; overflow: visible; }
 .wordmark__emblem { filter: drop-shadow(0 2px 3px rgb(0 0 0 / 48%)); }
 .wordmark__text, .wordmark__text-shadow {
-  font: 900 31px/1 "Roboto Slab", Rockwell, Georgia, serif; letter-spacing: .015em;
+  font: 900 31px/1 "Roboto Slab", Rockwell, Georgia, serif; letter-spacing: .06em;
 }
-.wordmark__text { fill: #fff1c0; stroke: #070b12; stroke-width: 2.4px; paint-order: stroke fill; }
-.wordmark__text-shadow { fill: none; stroke: #b47b23; stroke-width: 4px; paint-order: stroke; }
+.wordmark__text { fill: url(#wordmarkTextGold); stroke: #070b12; stroke-width: 2.4px; paint-order: stroke fill; }
+.wordmark__text-shadow { fill: none; stroke: #c8cedc; stroke-width: 2.2px; opacity: .78; paint-order: stroke; }
 .wordmark:hover .wordmark__emblem { filter: drop-shadow(0 0 8px rgb(239 188 67 / 60%)); }
 .wordmark:focus-visible { outline: 3px solid #6ed7ff; outline-offset: 5px; }
 .site-header__intro { margin: 0; color: #c8cedc; font-size: 17px; letter-spacing: .04em; }
