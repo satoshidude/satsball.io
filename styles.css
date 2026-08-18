@@ -1,6 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@500;600&family=Press+Start+2P&family=Space+Mono:wght@400;700&family=Tiny5&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@500;600&family=Press+Start+2P&family=Roboto+Slab:wght@900&family=Space+Mono:wght@400;700&family=Tiny5&display=swap');
 
-:root { --paper: #fff1c0; --muted: #98a0b4; --night: #111624; --line: #4c5873; --signal: #ff5b35; --gold: #efbc43; }
+:root { --paper: #fff1c0; --muted: #98a0b4; --night: #111624; --line: #4c5873; --signal: #ff5b35; --gold: #efbc43; --content-width: 1120px; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
@@ -14,18 +14,21 @@ button { font: inherit; }
   background: rgb(17 22 36 / 76%); backdrop-filter: blur(14px);
 }
 .site-header__inner {
-  width: min(1120px, calc(100% - 36px)); min-height: 78px; margin: 0 auto;
+  width: min(var(--content-width), calc(100% - 36px)); min-height: 78px; margin: 0 auto;
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 28px;
 }
 .wordmark {
-  width: max-content; display: inline-flex; align-items: center; gap: 11px; color: var(--paper);
-  font: 800 25px/1 "Barlow Condensed", sans-serif; letter-spacing: .08em; text-decoration: none; text-transform: uppercase;
+  width: min(250px, 25vw); min-width: 184px; display: block; color: var(--paper); text-decoration: none;
 }
-.wordmark__ball {
-  width: 18px; aspect-ratio: 1; border-radius: 50%;
-  background: radial-gradient(circle at 35% 28%, #fff6c9 0 7%, #ffcf52 18%, #d04b24 65%, #76150e 100%);
-  box-shadow: 0 0 14px #ff8a3e80;
+.wordmark__logo { display: block; width: 100%; height: auto; overflow: visible; }
+.wordmark__emblem { filter: drop-shadow(0 2px 3px rgb(0 0 0 / 48%)); }
+.wordmark__text, .wordmark__text-shadow {
+  font: 900 31px/1 "Roboto Slab", Rockwell, Georgia, serif; letter-spacing: .015em;
 }
+.wordmark__text { fill: #fff1c0; stroke: #070b12; stroke-width: 2.4px; paint-order: stroke fill; }
+.wordmark__text-shadow { fill: none; stroke: #b47b23; stroke-width: 4px; paint-order: stroke; }
+.wordmark:hover .wordmark__emblem { filter: drop-shadow(0 0 8px rgb(239 188 67 / 60%)); }
+.wordmark:focus-visible { outline: 3px solid #6ed7ff; outline-offset: 5px; }
 .site-header__intro { margin: 0; color: #c8cedc; font-size: 17px; letter-spacing: .04em; }
 .site-header__jump {
   justify-self: end; color: var(--gold); font: 700 15px/1 "IBM Plex Mono", monospace;
@@ -293,7 +296,7 @@ html.export-render .machine {
   font: 800 min(48vw, 620px)/1 "Barlow Condensed", sans-serif; pointer-events: none;
 }
 .site-footer__inner {
-  position: relative; width: min(1120px, 100%); margin: 0 auto 84px;
+  position: relative; width: min(var(--content-width), 100%); margin: 0 auto 84px;
   display: grid; grid-template-columns: minmax(250px, .78fr) minmax(420px, 1.22fr); gap: clamp(48px, 9vw, 124px);
 }
 .section-label {
@@ -323,18 +326,18 @@ html.export-render .machine {
 .steps p { max-width: 600px; margin: 0; color: #aeb6c8; font: 500 17px/1.45 "Barlow Condensed", sans-serif; letter-spacing: .015em; }
 .steps strong { color: #e8c761; font-weight: 700; }
 .game-links {
-  position: relative; width: min(1120px, 100%); margin: 0 auto 76px;
-  display: grid; gap: 14px;
+  position: relative; width: min(var(--content-width), 100%); margin: 0 auto 76px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 14px;
 }
-.game-links__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 8px; }
+.game-links__heading { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 8px; }
 .game-links__heading .section-label { margin: 0; }
 .game-links__heading h2 {
   margin: 0; color: #727c91; font: 600 12px/1 "IBM Plex Mono", monospace;
   letter-spacing: .08em; text-transform: uppercase;
 }
 .partner-banner {
-  position: relative; display: flex; align-items: center; gap: clamp(14px, 2.5vw, 26px); min-height: 132px;
-  padding: 20px clamp(18px, 3vw, 34px); border-radius: 12px; text-decoration: none; overflow: hidden;
+  position: relative; height: 100%; display: flex; align-items: center; gap: clamp(13px, 1.8vw, 22px); min-height: 132px;
+  padding: 20px clamp(17px, 2vw, 26px); border-radius: 12px; text-decoration: none; overflow: hidden;
   transition: border-color .2s, transform .2s, box-shadow .2s;
 }
 .partner-banner:hover { transform: translateY(-1px); }
@@ -345,7 +348,7 @@ html.export-render .machine {
 .jf-banner:hover { border-color: rgb(57 255 20 / 72%); box-shadow: 0 0 24px rgb(57 255 20 / 20%); }
 .jf-banner { flex-direction: row-reverse; text-align: right; }
 .jf-banner .partner-copy { align-items: flex-end; }
-.partner-art { flex: 0 0 auto; width: 84px; height: 84px; display: grid; place-items: center; }
+.partner-art { flex: 0 0 auto; width: clamp(64px, 6vw, 76px); height: clamp(64px, 6vw, 76px); display: grid; place-items: center; }
 .partner-logo { display: block; width: 100%; height: 100%; overflow: visible; }
 .zc-logo { filter: drop-shadow(0 0 10px rgb(142 48 235 / 45%)); }
 .zc-platter { transform-origin: 16px 20px; animation: partner-spin 9s linear infinite; }
@@ -370,7 +373,7 @@ html.export-render .machine {
   100% { transform: perspective(420px) rotateY(360deg); }
 }
 .site-footer__fineprint {
-  position: relative; width: min(1120px, 100%); margin: 0 auto; padding-top: 20px; border-top: 1px solid #242b3c;
+  position: relative; width: min(var(--content-width), 100%); margin: 0 auto; padding-top: 20px; border-top: 1px solid #242b3c;
   display: flex; justify-content: space-between; gap: 24px; color: #747f96; font: 500 11px/1.4 "IBM Plex Mono", monospace; text-transform: uppercase;
 }
 .site-footer__fineprint p { margin: 0; }
@@ -397,8 +400,12 @@ html.export-render .machine {
   .site-footer__fineprint { flex-direction: column; }
   .site-footer__links { justify-content: flex-start; }
 }
+@media (max-width: 700px) {
+  .game-links { grid-template-columns: 1fr; }
+}
 @media (max-width: 480px) {
   .site-header__inner { width: calc(100% - 24px); }
+  .wordmark { width: 184px; min-width: 0; }
   .site-header__jump { font-size: 11px; }
   .site-footer { padding-inline: 16px; }
   .game-links { margin-bottom: 56px; }
