@@ -115,25 +115,32 @@ html.export-render .machine {
   image-rendering: pixelated;
 }
 .plunger {
-  position: absolute; z-index: 1; left: 73.35%; top: 87.14%; width: 1.35%; height: 7.1%;
-  transform-origin: 50% 96%; transform: rotate(16deg);
-  transition: transform 90ms cubic-bezier(.18,.85,.25,1.35);
+  --launch-charge: 0;
+  position: absolute; z-index: 6; left: 73.35%; top: 87.14%; width: 1.35%; height: 7.1%;
+  transform-origin: 50% 96%; transform: rotate(calc(16deg + 36deg * var(--launch-charge)));
+  transition: transform 45ms linear;
   pointer-events: none;
 }
 .plunger::before {
-  content: ""; position: absolute; left: 50%; top: -3%; width: 140%; aspect-ratio: 1; transform: translateX(-50%);
+  content: ""; position: absolute; z-index: 2; left: 50%; top: -3%; width: 140%; aspect-ratio: 1; transform: translateX(-50%);
   border-radius: 50%; border: 1px solid #565a5c;
   background: radial-gradient(circle at 35% 28%, #fff 0 8%, #dce0df 18%, #858b8b 48%, #343838 72%, #d8c077 76%, #8b691f 100%);
   box-shadow: 1px 2px 3px #0008;
 }
+.plunger::after {
+  content: ""; position: absolute; z-index: 0; left: 50%; bottom: -4%; width: 215%; aspect-ratio: 1;
+  transform: translateX(-50%); border-radius: 50%;
+  border: 1px solid #785714;
+  background: radial-gradient(circle at 38% 32%, #805813 0 18%, #d9af4f 22% 45%, #f6d47a 50%, #9b711e 69%, #49330c 76%, #d9b65b 82% 100%);
+  box-shadow: inset 1px 1px 1px #fff3b799, inset -1px -1px 2px #4e350c99, 1px 2px 3px #0007;
+}
 .plunger span {
-  position: absolute; left: 20%; top: 5%; width: 60%; height: 96%; border-radius: 999px;
+  position: absolute; z-index: 1; left: 20%; top: 5%; width: 60%; height: 96%; border-radius: 999px;
   background: linear-gradient(90deg, #555 0, #d9dcdb 24%, #fff 43%, #9ca1a1 70%, #454949 100%);
   border: 1px solid #555; box-shadow: 2px 3px 4px #0008;
 }
 .machine.is-pulling .plunger {
-  transform: rotate(34deg);
-  transition-duration: 210ms; transition-timing-function: cubic-bezier(.2,.65,.3,1);
+  transition-duration: 35ms; transition-timing-function: linear;
 }
 .hotspot--play span, .hotspot--play strong { display: block; width: 100%; text-align: center; white-space: nowrap; }
 .hotspot--play span { color: #ffd33e; letter-spacing: .04em; text-shadow: 0 0 4px #ffbc24a0; }

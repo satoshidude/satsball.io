@@ -1,4 +1,12 @@
-import { channelAtSlotRow, DROP_PROFILES, PHYSICS, stepDropPhysics } from './physics.js';
+import { PHYSICS } from './physics.js';
+import {
+  createShotBall,
+  LAUNCH_CHARGE_TIME,
+  LAUNCH_MAXIMUM_SPEED,
+  railPath,
+  simulateShot,
+  stepShotPhysics,
+} from './simulation.js';
 
 if (new URLSearchParams(window.location.search).has('export')) {
   document.documentElement.classList.add('export-render');
@@ -10,6 +18,7 @@ const catcherForeground = new Image();
 catcherForeground.src = 'satsball-edit.png';
 const playButton = document.querySelector('#playButton');
 const machine = document.querySelector('.machine');
+const plunger = document.querySelector('#plunger');
 const withdrawButton = document.querySelector('#withdrawButton');
 const autoplayButton = document.querySelector('#autoplayButton');
 const soundToggle = document.querySelector('#soundToggle');
@@ -59,68 +68,8 @@ const prizeHeight = 57;
 const state = { balance: 0, depositRemaining: 5000, lastWin: 0, active: false, waitingForShot: false, syncing: false, autoplay: false, roundId: null, settlement: null, ball: null, ballIndex: 0, results: [], hitColumns: [], sound: true, lastTime: 0, accumulator: 0 };
 let autoplayTimer = 0;
 
-const pins = [];
-[
-  { count: 12, x: 238, y: 466 },
-  { count: 13, x: 217, y: 503 },
-  { count: 14, x: 196, y: 540 },
-].forEach((row) => {
-  for (let col = 0; col < row.count; col += 1) pins.push({ x: row.x + col * 42, y: row.y, r: 9 });
-});
-
-// Jede sichtbare Trennzacke besitzt zwei schräge Kollisionsflächen. So folgt
-// der Abprall der gezeichneten Metallkante statt einem unsichtbaren Kreis.
-const catcherSegments = [];
-for (let divider = 0; divider <= 14; divider += 1) {
-  const x = 173 + divider * 42;
-  catcherSegments.push(
-    { ax: x, ay: 603, bx: x - 10, by: 625, catcher: true, group: divider },
-    { ax: x, ay: 603, bx: x + 10, by: 625, catcher: true, group: divider },
-  );
-}
-
-// Aus den roten Führungsplanken der Hintergrundgrafik vermessene Kanalmitte.
-// Die dichte Punktfolge am oberen Bogen verhindert, dass die Kugel die Planken
-// selbst bei der stärksten Krümmung berührt oder überschreitet.
-const measuredRailPath = [
-  [660,1080], [648,1083], [636,1085], [608,1070], [534,1055],
-  [483,1040], [429,1025], [379,1010], [336,995], [273,970],
-  [184,890], [150,840], [130,790],
-  [118,740], [113,690], [117,640], [130,590], [153,540],
-  [184,490], [231,440], [293,397], [353,370], [393,361],
-  [433,356], [473,356], [513,361], [553,372], [585,382],
-  [604,382], [616,393],
-].map(([x, y]) => ({x, y}));
-
-function catmullRom(p0, p1, p2, p3, t) {
-  const t2 = t * t, t3 = t2 * t;
-  return {
-    x: .5 * ((2*p1.x) + (-p0.x+p2.x)*t + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
-    y: .5 * ((2*p1.y) + (-p0.y+p2.y)*t + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2 + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3),
-  };
-}
-
-// Nur den oberen Kanal ab y=540 glätten. Acht Zwischenwerte pro Messsegment
-// entfernen sichtbare Richtungswechsel, ohne die vermessene Bahn zu verlassen.
-const railPath = measuredRailPath.slice(0, 17);
-for (let i = 17; i < measuredRailPath.length - 1; i += 1) {
-  const p0 = measuredRailPath[Math.max(0, i - 1)];
-  const p1 = measuredRailPath[i];
-  const p2 = measuredRailPath[i + 1];
-  const p3 = measuredRailPath[Math.min(measuredRailPath.length - 1, i + 2)];
-  for (let step = 0; step < 8; step += 1) {
-    const point = catmullRom(p0, p1, p2, p3, step / 8);
-    point.x = Math.max(Math.min(p1.x, p2.x), Math.min(Math.max(p1.x, p2.x), point.x));
-    point.y = Math.max(Math.min(p1.y, p2.y), Math.min(Math.max(p1.y, p2.y), point.y));
-    railPath.push(point);
-  }
-}
-railPath.push(measuredRailPath.at(-1));
-const railLengths = [0];
-for (let i = 1; i < railPath.length; i += 1) {
-  railLengths.push(railLengths[i - 1] + Math.hypot(railPath[i].x - railPath[i - 1].x, railPath[i].y - railPath[i - 1].y));
-}
-const railLength = railLengths.at(-1);
+const launchMaximumSpeed = LAUNCH_MAXIMUM_SPEED;
+const launchChargeTime = LAUNCH_CHARGE_TIME;
 
 let audio;
 function tone(frequency, duration = .035, volume = .025, type = 'square') {
@@ -268,17 +217,31 @@ function scheduleAutoplay(delay) {
     autoplayTimer = window.setTimeout(() => {
       machine.classList.remove('is-pulling');
       if (state.autoplay) autoplayTimer = window.setTimeout(() => { metallicTing(); handlePlay(); }, 95);
-    }, 240);
+    }, launchChargeTime);
   }, delay);
 }
 
-function launchBall(targetChannel) {
-  state.ball = { x: 660, y: 1080, vx: 0, vy: 0, r: 8.5, phase: 'launch', pathT: 0, targetChannel, collisions: new Set(), escapeDirection: (state.ballIndex + targetChannel) % 2 ? 1 : -1 };
+function launchBall(seed, launchSpeed = launchMaximumSpeed, predictedChannel = null) {
+  state.ball = createShotBall(seed, launchSpeed);
+  state.ball.weakLaunch = false;
+  state.ball.predictedChannel = predictedChannel;
+  state.ball.collisions = new Set();
   if (document.hidden) finishBackgroundBall();
 }
 
+function launchWeakBall(seed, launchSpeed) {
+  if (!state.ball || state.ball.phase !== 'loaded') return;
+  state.ball = createShotBall(seed, launchSpeed);
+  state.ball.weakLaunch = true;
+  state.ball.collisions = new Set();
+  state.waitingForShot = false;
+  statusEl.textContent = `Ball ${state.ballIndex + 1} / 3`;
+  messageEl.textContent = 'The impulse is too weak — the ball rolls back.';
+  updateUI();
+}
+
 function loadBall() {
-  state.ball = { x: 660, y: 1080, vx: 0, vy: 0, r: 8.5, phase: 'loaded', pathT: 0, collisions: new Set() };
+  state.ball = { x: 660, y: 1080, vx: 0, vy: 0, r: 8.5, phase: 'loaded', collisions: new Set() };
 }
 
 function finishBall(channel) {
@@ -295,14 +258,22 @@ function finishBall(channel) {
   else setTimeout(resolveRound, 450);
 }
 
-// Browsers pause requestAnimationFrame in background tabs. The result of a
-// shot is already fixed by the server, so finish only its visual journey when
-// the page becomes hidden. Manual games then wait for the next shot; autoplay
-// continues through the existing server-authoritative shot sequence.
+// Browsers pause requestAnimationFrame in background tabs. Complete the same
+// deterministic physical simulation without rendering it.
 function finishBackgroundBall() {
   const ball = state.ball;
   if (!ball || ball.phase === 'loaded' || ball.phase === 'caught') return;
-  finishBall(ball.targetChannel);
+  if (ball.weakLaunch) {
+    ball.phase = 'loaded';
+    ball.x = railPath[0].x;
+    ball.y = railPath[0].y;
+    state.waitingForShot = true;
+    updateUI();
+    return;
+  }
+  const outcome = simulateShot(ball.seed, ball.launchSpeed);
+  if (outcome.channel == null) return;
+  finishBall(outcome.channel);
 }
 
 async function resolveRound() {
@@ -476,7 +447,7 @@ async function loadGuestBalance() {
   } catch { /* Static preview keeps its local demo balance. */ }
 }
 
-async function handlePlay() {
+async function handlePlay(launchSpeed = launchMaximumSpeed) {
   if (!state.active) { startRound(); return; }
   if (!state.waitingForShot) return;
   state.waitingForShot = false; state.syncing = true;
@@ -484,11 +455,13 @@ async function handlePlay() {
   messageEl.textContent = 'Ball launched through the outer channel.';
   updateUI();
   try {
-    const response = await fetch(`/api/game/${encodeURIComponent(state.roundId)}/shot`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shotIndex: state.ballIndex }) });
+    const response = await fetch(`/api/game/${encodeURIComponent(state.roundId)}/shot`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shotIndex: state.ballIndex, launchSpeed }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Ball could not be released');
     if (data.settled) state.settlement = data;
-    state.syncing = false; updateUI(); tone(120, .09, .05, 'sawtooth'); launchBall(data.channel);
+    state.syncing = false; updateUI(); tone(120, .09, .05, 'sawtooth');
+    if (data.reached === false) launchWeakBall(data.seed, data.launchSpeed);
+    else launchBall(data.seed, data.launchSpeed, data.channel);
   } catch (error) {
     state.syncing = false; state.waitingForShot = true; messageEl.textContent = error.message; updateUI();
     if (state.autoplay) setAutoplay(false);
@@ -497,8 +470,6 @@ async function handlePlay() {
 
 function updateBall(dt) {
   const b = state.ball; if (!b) return;
-  const catcherWidth = 588 / 14;
-  const targetX = 173 + catcherWidth * (b.targetChannel + .5);
   if (b.phase === 'loaded') return;
   if (b.phase === 'caught') return;
   if (b.phase === 'catch') {
@@ -536,54 +507,37 @@ function updateBall(dt) {
     }
     return;
   }
-  if (b.phase === 'launch') {
-    b.pathT = Math.min(1, b.pathT + dt * .55);
-    const distance = b.pathT * railLength;
-    let segment = 1;
-    while (segment < railLengths.length - 1 && railLengths[segment] < distance) segment += 1;
-    const start = railPath[segment - 1], end = railPath[segment];
-    const localT = (distance - railLengths[segment - 1]) / (railLengths[segment] - railLengths[segment - 1]);
-    const point = { x: start.x + (end.x - start.x) * localT, y: start.y + (end.y - start.y) * localT };
-    b.r = 8.5;
-    b.x = point.x; b.y = point.y;
-    if (b.pathT >= 1) {
-      tone(190, .08, .05, 'square');
-      // Bumperzentrum 633/417, äußerer Silberradius ca. 21 px.
-      // Der größere Kugelmittelpunkt bleibt beim Kontakt ca. 29,5 px entfernt.
-      b.phase = 'bumper'; b.bounceT = 0; b.x = 616; b.y = 393;
+  if (b.phase === 'launch' || b.phase === 'drop') {
+    const events = stepShotPhysics(b, dt);
+    if (events.leftBumper) tone(260, .05, .035, 'square');
+    if (events.rightBumper) tone(190, .08, .05, 'square');
+    for (const impact of events.impacts) {
+      if (b.collisions.has(impact.index)) continue;
+      tone(impact.catcher ? 500 : 520 + Math.min(440, impact.speed));
+      b.collisions.add(impact.index);
+      setTimeout(() => b.collisions.delete(impact.index), 80);
     }
-    return;
-  }
-
-  if (b.phase === 'bumper') {
-    b.bounceT = Math.min(1, b.bounceT + dt * 6.5);
-    const t = b.bounceT;
-    // Rückprall durch die offene Innenseite direkt zum Nagelfeld. Dadurch
-    // kreuzt die Kugel nicht erneut die obere rote Ellipsenführung.
-    b.x = 616 - 32 * t;
-    b.y = 393 + 27 * t + 8 * t * t;
-    if (t >= 1) {
-      b.phase = 'drop';
-      const profiles = DROP_PROFILES[b.targetChannel];
-      const profile = profiles[Math.floor(Math.random() * profiles.length)];
-      [b.vx, b.vy] = profile;
+    if (events.returned) {
+      b.phase = 'loaded';
+      b.x = railPath[0].x;
+      b.y = railPath[0].y;
+      b.vx = 0;
+      b.vy = 0;
+      state.waitingForShot = true;
+      messageEl.textContent = 'Ball returned. Hold longer and trigger again.';
+      updateUI();
+      scheduleAutoplay(550);
     }
-    return;
-  }
-
-  const physicsStep = stepDropPhysics(b, dt, targetX, pins, catcherSegments);
-  for (const impact of physicsStep.impacts) {
-    if (b.collisions.has(impact.index)) continue;
-    tone(impact.catcher ? 500 : 520 + Math.min(440, impact.speed));
-    b.collisions.add(impact.index);
-    setTimeout(() => b.collisions.delete(impact.index), 80);
-  }
-  if (b.y > PHYSICS.maskEntryY) {
-    b.enteredChannel = channelAtSlotRow(b.x);
-    b.slotX = b.x;
-    b.vx = 0;
-    b.vy = Math.max(45, Math.min(500, b.vy));
-    b.phase = 'catch';
+    if (events.enteredChannel != null) {
+      if (b.predictedChannel != null && b.predictedChannel !== events.enteredChannel) {
+        console.error(`Physics desync: server=${b.predictedChannel}, browser=${events.enteredChannel}, seed=${b.seed}`);
+      }
+      b.enteredChannel = events.enteredChannel;
+      b.slotX = b.x;
+      b.vx = 0;
+      b.vy = Math.max(45, Math.min(500, b.vy));
+      b.phase = 'catch';
+    }
   }
 }
 
@@ -650,20 +604,50 @@ function frame(time) {
 }
 
 let plungerArmed = false;
+let plungerHeldAt = 0;
+let plungerChargeFrame = 0;
+
+function chargedLaunch(heldMilliseconds) {
+  const charge = Math.max(0, Math.min(1, heldMilliseconds / launchChargeTime));
+  return { speed: launchMaximumSpeed * charge, charge };
+}
+
+function renderPlungerCharge() {
+  if (!plungerArmed) return;
+  const { charge } = chargedLaunch(performance.now() - plungerHeldAt);
+  plunger.style.setProperty('--launch-charge', charge.toFixed(4));
+  startDetailEl.textContent = charge >= 1 ? 'MAX' : `${Math.round(charge * 100)} %`;
+  plungerChargeFrame = charge < 1 ? requestAnimationFrame(renderPlungerCharge) : 0;
+}
+
 function pullPlunger(event) {
   if (playButton.disabled || plungerArmed) return;
   event.preventDefault();
   plungerArmed = true;
-  if (state.active && state.waitingForShot) machine.classList.add('is-pulling');
+  if (state.active && state.waitingForShot) {
+    plungerHeldAt = performance.now();
+    machine.classList.add('is-pulling');
+    cancelAnimationFrame(plungerChargeFrame);
+    plunger.style.setProperty('--launch-charge', '0');
+    plungerChargeFrame = requestAnimationFrame(renderPlungerCharge);
+  }
   if (event.pointerId !== undefined) playButton.setPointerCapture(event.pointerId);
 }
 function releasePlunger(event, fire = true) {
   if (!plungerArmed) return;
   if (event) event.preventDefault();
   const strikesBall = state.active && state.waitingForShot && state.ball?.phase === 'loaded';
+  const launch = chargedLaunch(performance.now() - plungerHeldAt);
   plungerArmed = false;
+  cancelAnimationFrame(plungerChargeFrame);
+  plungerChargeFrame = 0;
+  plunger.style.setProperty('--launch-charge', '0');
   machine.classList.remove('is-pulling');
-  if (fire) setTimeout(() => { if (strikesBall) metallicTing(); handlePlay(); }, 95);
+  updateUI();
+  if (fire) setTimeout(() => {
+    if (strikesBall) metallicTing();
+    handlePlay(launch.speed);
+  }, 95);
 }
 playButton.addEventListener('pointerdown', pullPlunger);
 playButton.addEventListener('pointerup', (event) => releasePlunger(event));

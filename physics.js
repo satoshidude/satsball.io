@@ -2,109 +2,132 @@ const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, v
 
 export const PHYSICS = Object.freeze({
   gravity: 1050,
-  maxHorizontalSpeed: 820,
-  maxDownwardSpeed: 650,
-  maxUpwardSpeed: 210,
-  // The triangular catcher geometry ends above this line. From here on the
-  // ball is safely inside one shaft, but it keeps its remaining momentum.
+  maxHorizontalSpeed: 6000,
+  maxDownwardSpeed: 6000,
+  maxUpwardSpeed: 6000,
+  airDrag: .1,
+  spinDrag: .18,
   maskEntryY: 640,
 });
-
-// Calibrated bumper-exit impulses. Every profile reaches its channel through
-// the visible nail field and between the corresponding catcher teeth. Picking
-// among several profiles keeps repeated results varied without correcting the
-// ball's position after it has entered a slot.
-export const DROP_PROFILES = Object.freeze([
-  [[-617, 57], [-658, 61], [-735, 91], [-675, 75], [-718, 88]],
-  [[-613, 56], [-596, 192], [-585, 178], [-773, 115], [-599, 181]],
-  [[-469, 124], [-491, 140], [-523, 175], [-576, 172], [-685, 72]],
-  [[-548, 149], [-457, 117], [-457, 125], [-541, 162], [-579, 204]],
-  [[-460, 125], [-450, 127], [-422, 104], [-392, 73], [-490, 132]],
-  [[-471, 129], [-366, 61], [-391, 87], [-394, 70], [-439, 111]],
-  [[-396, 73], [-337, 59], [-392, 95], [-392, 85], [-384, 86]],
-  [[-112, 82], [-77, 101], [-81, 113], [-101, 133], [-81, 120]],
-  [[-99, 83], [10, 59], [-16, 96], [10, 66], [-18, 75]],
-  [[-6, 68], [-4, 80], [7, 96], [27, 205], [-12, 78]],
-  [[-3, 94], [-98, 89], [12, 125], [-98, 108], [-17, 123]],
-  [[-26, 68], [-35, 66], [-41, 84], [-25, 77], [-28, 92]],
-  [[253, 75], [239, 71], [264, 83], [263, 106], [249, 68]],
-  [[292, 124], [251, 78], [229, 65], [246, 84], [242, 90]],
-]);
 
 export function channelAtSlotRow(x) {
   return clamp(Math.floor((x - 173) / 42), 0, 13);
 }
 
+// Stable FNV-1a based surface variation. It depends only on the shot seed and
+// the touched body, never on frame rate or collision-loop timing.
+export function surfaceVariation(seed, bodyKey) {
+  const text = `${seed ?? ''}:${bodyKey}`;
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) / 0xffffffff) * 2 - 1;
+}
+
+function rotatedNormal(nx, ny, angle) {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return { nx: nx * cosine - ny * sine, ny: nx * sine + ny * cosine };
+}
+
 /**
- * Integrates one fixed drop step. The function is deliberately deterministic:
- * randomness is introduced only once at launch, never repeatedly while two
- * bodies overlap. This prevents a contact from accumulating artificial energy.
+ * Rigid-body collision of a solid ball against a stationary surface. Normal
+ * restitution and Coulomb-limited tangential friction update translation and
+ * spin together. No collision impulse can increase total kinetic energy.
  */
-export function stepDropPhysics(ball, dt, _targetX, pins, segments = []) {
+export function resolveBallImpact(ball, nx, ny, restitution, friction) {
+  const normalLength = Math.hypot(nx, ny) || 1;
+  nx /= normalLength;
+  ny /= normalLength;
+  const normalSpeed = ball.vx * nx + ball.vy * ny;
+  if (normalSpeed >= 0) return false;
+
+  const normalImpulse = -(1 + clamp(restitution, 0, 1)) * normalSpeed;
+  ball.vx += normalImpulse * nx;
+  ball.vy += normalImpulse * ny;
+
+  const tx = -ny;
+  const ty = nx;
+  const radius = ball.r || 1;
+  const inertia = .5 * radius * radius;
+  const contactSlip = ball.vx * tx + ball.vy * ty - (ball.omega || 0) * radius;
+  const effectiveMass = 1 + radius * radius / inertia;
+  const frictionLimit = normalImpulse * Math.max(0, friction);
+  const tangentialImpulse = clamp(-contactSlip / effectiveMass, -frictionLimit, frictionLimit);
+  ball.vx += tangentialImpulse * tx;
+  ball.vy += tangentialImpulse * ty;
+  ball.omega = (ball.omega || 0) - radius * tangentialImpulse / inertia;
+  return true;
+}
+
+export function resolveCircleImpact(vx, vy, nx, ny, restitution, friction) {
+  const ball = { vx, vy, r: 1, omega: 0 };
+  resolveBallImpact(ball, nx, ny, restitution, friction);
+  return { vx: ball.vx, vy: ball.vy };
+}
+
+export function resolveCircularBoundary(ball, centerX, centerY, maximumCenterRadius, restitution = .28, friction = .055) {
+  const dx = ball.x - centerX;
+  const dy = ball.y - centerY;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= maximumCenterRadius) return false;
+  const outwardX = dx / (distance || 1);
+  const outwardY = dy / (distance || 1);
+  ball.x = centerX + outwardX * maximumCenterRadius;
+  ball.y = centerY + outwardY * maximumCenterRadius;
+  if (ball.vx * outwardX + ball.vy * outwardY > 0) {
+    resolveBallImpact(ball, -outwardX, -outwardY, restitution, friction);
+  }
+  return true;
+}
+
+/** Integrates one fixed free-fall step after the guide-rail exit. */
+export function stepDropPhysics(ball, dt, pins, segments = []) {
   const previousX = ball.x;
   const previousY = ball.y;
   const impacts = [];
+  const drag = Math.exp(-PHYSICS.airDrag * dt);
 
   ball.vy = clamp(ball.vy + PHYSICS.gravity * dt, -PHYSICS.maxUpwardSpeed, PHYSICS.maxDownwardSpeed);
-  ball.vx = clamp(ball.vx * Math.exp(-.45 * dt), -PHYSICS.maxHorizontalSpeed, PHYSICS.maxHorizontalSpeed);
+  ball.vx = clamp(ball.vx * drag, -PHYSICS.maxHorizontalSpeed, PHYSICS.maxHorizontalSpeed);
+  ball.vy *= drag;
+  ball.omega = (ball.omega || 0) * Math.exp(-PHYSICS.spinDrag * dt);
+  ball.angle = (ball.angle || 0) + ball.omega * dt;
   ball.x += ball.vx * dt;
   ball.y += ball.vy * dt;
 
-  const leftWall = 183 + ball.r;
-  const rightWall = 751 - ball.r;
-  if (ball.x < leftWall) {
-    ball.x = leftWall;
-    if (ball.vx < 0) ball.vx = Math.min(PHYSICS.maxHorizontalSpeed, -ball.vx * .55);
-  } else if (ball.x > rightWall) {
-    ball.x = rightWall;
-    if (ball.vx > 0) ball.vx = Math.max(-PHYSICS.maxHorizontalSpeed, -ball.vx * .55);
-  }
-
-  let pinContact = false;
-  let catcherContact = false;
-  let contactEscapeDirection = 0;
-  let deepestContact = -1;
   const impulsedBodies = new Set();
 
-  function resolveContact(nx, ny, overlap, bodyKey, catcher, impactIndex) {
-    pinContact = true;
-    catcherContact ||= catcher;
-    if (overlap > deepestContact) {
-      deepestContact = overlap;
-      contactEscapeDirection = Math.sign(nx) || ball.escapeDirection || 1;
-    }
+  function resolveContact(geometryNx, geometryNy, overlap, bodyKey, catcher, impactIndex) {
+    ball.x += geometryNx * (overlap + .01);
+    ball.y += geometryNy * (overlap + .01);
+    if (impulsedBodies.has(bodyKey)) return;
 
-    ball.x += nx * (overlap + .01);
-    ball.y += ny * (overlap + .01);
-
+    // Microscopic fixed imperfections replace anti-stall kicks. A perfectly
+    // centred ball therefore rolls to one side naturally under gravity.
+    const variation = surfaceVariation(ball.seed, `${bodyKey}:normal`);
+    const roughnessMagnitude = (catcher ? .003 : .007) + Math.abs(variation) * (catcher ? .004 : .011);
+    const roughness = (variation < 0 ? -1 : 1) * roughnessMagnitude;
+    const { nx, ny } = rotatedNormal(geometryNx, geometryNy, roughness);
     const normalSpeed = ball.vx * nx + ball.vy * ny;
-    if (impulsedBodies.has(bodyKey) || normalSpeed >= -.5) return;
+    if (normalSpeed >= -.5) return;
     impulsedBodies.add(bodyKey);
 
-    // Standard rigid-body reflection against a stationary surface. Friction
-    // is limited by the normal impulse, so a grazing hit cannot create a
-    // sideways kick or add energy to the ball.
-    const restitution = catcher ? .18 : .38;
-    const normalImpulse = Math.min(500, -(1 + restitution) * normalSpeed);
-    ball.vx += normalImpulse * nx;
-    ball.vy += normalImpulse * ny;
-
-    const tx = -ny;
-    const ty = nx;
-    const tangentSpeed = ball.vx * tx + ball.vy * ty;
-    const frictionLimit = normalImpulse * (catcher ? .12 : .065);
-    const frictionImpulse = clamp(-tangentSpeed, -frictionLimit, frictionLimit);
-    ball.vx += frictionImpulse * tx;
-    ball.vy += frictionImpulse * ty;
+    const restitutionBase = catcher ? .105 : .33;
+    const restitutionSpread = catcher ? .012 : .018;
+    const frictionBase = catcher ? .145 : .075;
+    const frictionSpread = catcher ? .012 : .008;
+    const restitution = restitutionBase + surfaceVariation(ball.seed, `${bodyKey}:restitution`) * restitutionSpread;
+    const friction = frictionBase + surfaceVariation(ball.seed, `${bodyKey}:friction`) * frictionSpread;
+    resolveBallImpact(ball, nx, ny, restitution, friction);
 
     ball.vx = clamp(ball.vx, -PHYSICS.maxHorizontalSpeed, PHYSICS.maxHorizontalSpeed);
     ball.vy = clamp(ball.vy, -PHYSICS.maxUpwardSpeed, PHYSICS.maxDownwardSpeed);
     impacts.push({ index: impactIndex, speed: -normalSpeed, catcher });
   }
 
-  // Four positional passes resolve contacts in the narrow gaps between two
-  // pins or at a catcher tip. Each body may add only one impulse per step,
-  // so the extra separation passes cannot create artificial energy.
   for (let pass = 0; pass < 4; pass += 1) {
     pins.forEach((pin, index) => {
       const dx = ball.x - pin.x;
@@ -112,12 +135,10 @@ export function stepDropPhysics(ball, dt, _targetX, pins, segments = []) {
       const minimum = ball.r + pin.r;
       const distanceSquared = dx * dx + dy * dy;
       if (distanceSquared >= minimum * minimum) return;
-
       const distance = Math.sqrt(distanceSquared);
       const nx = distance > .0001 ? dx / distance : 0;
       const ny = distance > .0001 ? dy / distance : -1;
-      const overlap = minimum - distance;
-      resolveContact(nx, ny, overlap, `pin:${index}`, Boolean(pin.catcher), index);
+      resolveContact(nx, ny, minimum - distance, `pin:${index}`, Boolean(pin.catcher), index);
     });
 
     segments.forEach((segment, index) => {
@@ -145,57 +166,9 @@ export function stepDropPhysics(ball, dt, _targetX, pins, segments = []) {
         ny = abx / length;
         if (ball.vx * nx + ball.vy * ny > 0) { nx = -nx; ny = -ny; }
       }
-      resolveContact(
-        nx,
-        ny,
-        ball.r - distance,
-        `segment:${segment.group ?? index}`,
-        Boolean(segment.catcher),
-        pins.length + index,
-      );
+      resolveContact(nx, ny, ball.r - distance, `segment:${segment.group ?? index}`, Boolean(segment.catcher), pins.length + index);
     });
   }
 
-  ball.escapeTime = Math.max(0, (ball.escapeTime || 0) - dt);
-
-  // A mathematically exact hit on the top of a round pin can balance forever.
-  // After 0.26 s of genuine low-speed contact, apply one small rolling impulse.
-  const slowContact = pinContact && Math.hypot(ball.vx, ball.vy) < 48 && Math.abs(ball.y - previousY) < .18;
-  ball.stallTime = slowContact ? (ball.stallTime || 0) + dt : Math.max(0, (ball.stallTime || 0) - dt * 2);
-  const stallLimit = catcherContact ? .12 : .18;
-  if (ball.stallTime >= stallLimit) {
-    const direction = contactEscapeDirection || ball.escapeDirection || 1;
-    const rollSpeed = catcherContact ? 30 : 24;
-    ball.vx = clamp(ball.vx + direction * rollSpeed, -PHYSICS.maxHorizontalSpeed, PHYSICS.maxHorizontalSpeed);
-    ball.vy = Math.max(ball.vy, catcherContact ? 24 : 36);
-    ball.escapeTime = catcherContact ? .24 : .18;
-    ball.stallTime = 0;
-  }
-
-  // Auch ein langsames Pendeln zwischen zwei Nadeln darf nicht mehrere
-  // Sekunden dauern. Fortschritt wird an der tiefsten erreichten Position
-  // gemessen; erst nach 0.65 s ohne einen weiteren Pixel greift ein kleiner,
-  // begrenzter Rollimpuls ein.
-  if (ball.maxProgressY == null || ball.y > ball.maxProgressY + 1) {
-    ball.maxProgressY = ball.y;
-    ball.noProgressTime = 0;
-  } else {
-    ball.noProgressTime = (ball.noProgressTime || 0) + dt;
-  }
-  const progressLimit = catcherContact ? .34 : .45;
-  if (ball.noProgressTime >= progressLimit) {
-    const direction = contactEscapeDirection || ball.escapeDirection || 1;
-    ball.vx = clamp(ball.vx + direction * (catcherContact ? 24 : 18), -PHYSICS.maxHorizontalSpeed, PHYSICS.maxHorizontalSpeed);
-    ball.vy = Math.max(ball.vy, catcherContact ? 28 : 48);
-    ball.escapeTime = catcherContact ? .22 : .15;
-    ball.noProgressTime = 0;
-  }
-
-  return {
-    impacts,
-    pinContact,
-    catcherContact,
-    deltaX: ball.x - previousX,
-    deltaY: ball.y - previousY,
-  };
+  return { impacts, deltaX: ball.x - previousX, deltaY: ball.y - previousY };
 }

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { LAUNCH_MAXIMUM_SPEED, simulateShot } from '../simulation.js';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 
@@ -53,8 +54,14 @@ test('session, static boundary, replay protection, ledger and auth limits', asyn
   assert.match(first.headers.get('set-cookie'), /SameSite=Strict/);
   assert.match(first.headers.get('set-cookie'), /Secure/);
 
+  const lanSession = await fetch(`${fixture.origin}/api/session`, { headers: { 'X-Forwarded-Host': '192.168.178.97:5173' } });
+  assert.equal(lanSession.status, 200);
+  assert.match(lanSession.headers.get('set-cookie'), /^satsball_guest=/);
+  assert.doesNotMatch(lanSession.headers.get('set-cookie'), /; Secure/);
+
   const db = new DatabaseSync(fixture.dbPath);
-  const session = db.prepare('SELECT id, token_hash FROM sessions').get();
+  const session = db.prepare('SELECT id, token_hash FROM sessions WHERE token_hash = ?')
+    .get(crypto.createHash('sha256').update(token).digest('hex'));
   assert.notEqual(session.id, token);
   assert.equal(session.token_hash, crypto.createHash('sha256').update(token).digest('hex'));
   assert.equal(fs.statSync(fixture.dataDir).mode & 0o777, 0o700);
@@ -88,11 +95,20 @@ test('session, static boundary, replay protection, ledger and auth limits', asyn
   const started = await request(fixture.origin, '/api/game/start', { token, method: 'POST', body: {} });
   assert.equal(started.status, 200);
   const { roundId } = await started.json();
+  const weakShot = await request(fixture.origin, `/api/game/${roundId}/shot`, {
+    token, method: 'POST', body: { shotIndex: 0, launchSpeed: 0 }
+  });
+  assert.equal(weakShot.status, 200);
+  assert.equal((await weakShot.json()).reached, false);
+  assert.equal(db.prepare('SELECT shot_count FROM game_rounds WHERE id = ?').get(roundId).shot_count, 0);
   for (const shotIndex of [0, 1, 2]) {
     const attempts = await Promise.all(Array.from({ length: 20 }, () => request(fixture.origin, `/api/game/${roundId}/shot`, {
-      token, method: 'POST', body: { shotIndex }
+      token, method: 'POST', body: { shotIndex, launchSpeed: LAUNCH_MAXIMUM_SPEED }
     })));
     assert.ok(attempts.every((response) => response.status === 200));
+    const physicalResult = await attempts[0].json();
+    assert.equal(physicalResult.reached, true);
+    assert.equal(simulateShot(physicalResult.seed, physicalResult.launchSpeed).channel, physicalResult.channel);
   }
   assert.equal(db.prepare('SELECT shot_count FROM game_rounds WHERE id = ?').get(roundId).shot_count, 3);
   assert.ok(db.prepare("SELECT COUNT(*) count FROM ledger_events WHERE event_type = 'win' AND reference_id = ?").get(roundId).count <= 1);
@@ -114,6 +130,22 @@ test('session, static boundary, replay protection, ledger and auth limits', asyn
   assert.ok(depositPolls.every((response) => response.status === 200));
   assert.equal(db.prepare('SELECT balance FROM sessions WHERE id = ?').get(session.id).balance, depositBalanceBefore + 100);
   assert.equal(db.prepare("SELECT COUNT(*) count FROM ledger_events WHERE event_type='deposit' AND reference_id=?").get(depositHash).count, 1);
+
+  const recoveredHash = crypto.randomBytes(32).toString('hex');
+  db.prepare(`INSERT INTO invoices
+    (payment_hash,session_id,invoice,amount,state,created_at,expires_at)
+    VALUES (?,?,?,250,'pending',unixepoch()-1200,unixepoch()-600)`)
+    .run(recoveredHash, session.id, 'test-recovered-deposit');
+  const recoveryBalanceBefore = db.prepare('SELECT balance FROM sessions WHERE id = ?').get(session.id).balance;
+  fixture.runtime.setWalletClientForTest({
+    lookupInvoice: async ({ payment_hash }) => ({ type: 'incoming', state: 'settled', payment_hash, amount: payment_hash === recoveredHash ? 250000 : 100000 }),
+    getBalance: async () => ({ balance: 1000000 })
+  });
+  assert.equal(await fixture.runtime.recoverPendingDeposits(), 1);
+  assert.equal(await fixture.runtime.recoverPendingDeposits(), 0);
+  assert.equal(db.prepare('SELECT state FROM invoices WHERE payment_hash = ?').get(recoveredHash).state, 'settled');
+  assert.equal(db.prepare('SELECT balance FROM sessions WHERE id = ?').get(session.id).balance, recoveryBalanceBefore + 250);
+  assert.equal(db.prepare("SELECT COUNT(*) count FROM ledger_events WHERE event_type='deposit' AND reference_id=?").get(recoveredHash).count, 1);
   const monitoringResponse = await fetch(`${fixture.origin}/api/monitoring`, {
     headers: { Authorization: `Basic ${Buffer.from('security-test:test-only-monitoring-password').toString('base64')}` }
   });

@@ -8,6 +8,7 @@ import QRCode from 'qrcode';
 import bech32 from 'bech32';
 import { NWCClient } from '@getalby/sdk/nwc';
 import { decodeWholeSatInvoice } from './lib/bolt11.mjs';
+import { LAUNCH_MAXIMUM_SPEED, simulateShot } from './simulation.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(root, 'config.md');
@@ -101,6 +102,8 @@ addColumn('withdrawals', 'error_code', 'TEXT');
 addColumn('lnurl_withdrawals', 'fee_sats', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('lnurl_withdrawals', 'total_debit', 'INTEGER');
 addColumn('lnurl_withdrawals', 'token_rotated_at', 'INTEGER');
+addColumn('game_rounds', 'shot_seeds', "TEXT NOT NULL DEFAULT '[]'");
+addColumn('game_rounds', 'launch_speeds', "TEXT NOT NULL DEFAULT '[]'");
 db.exec(`
   UPDATE withdrawals SET total_debit = amount + COALESCE(fee_sats, 0) WHERE total_debit IS NULL;
   UPDATE lnurl_withdrawals SET total_debit = amount + COALESCE(fee_sats, 0) WHERE total_debit IS NULL;
@@ -236,11 +239,19 @@ function monitoringAuth(req, res, next) {
   next();
 }
 
-function setGuestCookie(res, token) {
-  res.append('Set-Cookie', `__Host-satsball_guest=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000; Secure`);
+function usesSecureGuestCookie(req) {
+  if (publicOrigin?.startsWith('https://')) return true;
+  const hostname = String(req.hostname || '').replace(/^\[|\]$/g, '');
+  return req.secure || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 }
 
-function rotateGuestToken(sessionId, res) {
+function setGuestCookie(req, res, token) {
+  const secure = usesSecureGuestCookie(req);
+  const name = secure ? '__Host-satsball_guest' : 'satsball_guest';
+  res.append('Set-Cookie', `${name}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${secure ? '; Secure' : ''}`);
+}
+
+function rotateGuestToken(sessionId, req, res) {
   const token = crypto.randomBytes(32).toString('hex');
   const now = nowSeconds();
   // Parallel laufende Statusabfragen dürfen nach einer erfolgreichen Zahlung
@@ -249,7 +260,7 @@ function rotateGuestToken(sessionId, res) {
   db.prepare(`UPDATE sessions
     SET previous_token_hash = token_hash, previous_token_expires_at = ?, token_hash = ?, updated_at = ?
     WHERE id = ?`).run(now + 60, sha256(token), now, sessionId);
-  setGuestCookie(res, token);
+  setGuestCookie(req, res, token);
 }
 
 function guestSession(req, res) {
@@ -267,7 +278,7 @@ function guestSession(req, res) {
       const rotatedToken = crypto.randomBytes(32).toString('hex');
       db.prepare('UPDATE sessions SET token_hash = ?, updated_at = ? WHERE id = ? AND token_hash IS NULL')
         .run(sha256(rotatedToken), nowSeconds(), legacy.id);
-      setGuestCookie(res, rotatedToken);
+      setGuestCookie(req, res, rotatedToken);
       res.append('Set-Cookie', 'satsball_guest=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Secure');
       return legacy.id;
     }
@@ -275,7 +286,7 @@ function guestSession(req, res) {
   const id = crypto.randomUUID(); const token = crypto.randomBytes(32).toString('hex'); const now = nowSeconds();
   db.prepare('INSERT INTO sessions (id, token_hash, created_at, updated_at) VALUES (?, ?, ?, ?)')
     .run(id, sha256(token), now, now);
-  setGuestCookie(res, token);
+  setGuestCookie(req, res, token);
   if (cookie.satsball_guest) res.append('Set-Cookie', 'satsball_guest=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Secure');
   return id;
 }
@@ -324,13 +335,6 @@ const channelNumbers = [4, 1, 3, 2, 4, 3, 1, 4, 2, 4, 3, 1, 2, 4];
 const matrix = [[1,3,4,1,2,2,1], [2,3,4,1,2,3,3], [3,3,4,1,2,4,4]];
 const payouts = [10, 20, 40, 100, 80, 20, 10];
 
-function generateChannel() {
-  let channel = 0;
-  const bytes = crypto.randomBytes(13);
-  for (const byte of bytes) channel += byte & 1;
-  return channel;
-}
-
 function evaluateResults(results) {
   const lit = matrix.map(() => matrix[0].map(() => false));
   for (const value of results) {
@@ -350,12 +354,9 @@ app.post('/api/game/start', rateLimit('game-start', 60, 30), (req, res) => {
     const session = db.prepare('SELECT balance FROM sessions WHERE id = ?').get(sessionId);
     if (!session || session.balance < 10) { db.exec('ROLLBACK'); return res.status(409).json({ error: 'Not enough balance' }); }
     const id = crypto.randomUUID();
-    const channels = [generateChannel(), generateChannel(), generateChannel()];
-    const results = channels.map((channel) => channelNumbers[channel]);
-    const { hitColumns, payout } = evaluateResults(results);
     const now = Math.floor(Date.now() / 1000);
-    db.prepare('INSERT INTO game_rounds (id, session_id, channels, results, payout, hit_columns, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, sessionId, JSON.stringify(channels), JSON.stringify(results), payout, JSON.stringify(hitColumns), now);
+    db.prepare('INSERT INTO game_rounds (id, session_id, channels, results, payout, hit_columns, shot_seeds, launch_speeds, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)')
+      .run(id, sessionId, '[]', '[]', '[]', '[]', '[]', now);
     applyBalanceDelta(sessionId, -10, 'stake', 'game_round', id, { stake: 10 });
     db.exec('COMMIT');
     const balance = db.prepare('SELECT balance FROM sessions WHERE id = ?').get(sessionId).balance;
@@ -370,26 +371,58 @@ app.post('/api/game/:roundId/shot', rateLimit('game-shot', 60, 120), (req, res) 
   const sessionId = guestSession(req, res);
   const shotIndex = Number(req.body?.shotIndex);
   if (!Number.isInteger(shotIndex) || shotIndex < 0 || shotIndex > 2) return res.status(400).json({ error: 'Invalid ball number' });
+  const requestedLaunchSpeed = req.body?.launchSpeed == null ? LAUNCH_MAXIMUM_SPEED : Number(req.body.launchSpeed);
+  if (!Number.isFinite(requestedLaunchSpeed) || requestedLaunchSpeed < 0 || requestedLaunchSpeed > LAUNCH_MAXIMUM_SPEED) {
+    return res.status(400).json({ error: 'Invalid launch impulse' });
+  }
   db.exec('BEGIN IMMEDIATE');
   try {
     const round = db.prepare('SELECT * FROM game_rounds WHERE id = ? AND session_id = ?').get(req.params.roundId, sessionId);
     if (!round) { db.exec('ROLLBACK'); return res.status(404).json({ error: 'Game not found' }); }
     if (shotIndex > round.shot_count) { db.exec('ROLLBACK'); return res.status(409).json({ error: 'Balls must be played in order' }); }
-    const channels = JSON.parse(round.channels); const results = JSON.parse(round.results); const hitColumns = JSON.parse(round.hit_columns);
+    const channels = JSON.parse(round.channels);
+    const results = JSON.parse(round.results);
+    const seeds = JSON.parse(round.shot_seeds || '[]');
+    const launchSpeeds = JSON.parse(round.launch_speeds || '[]');
     let balance = db.prepare('SELECT balance FROM sessions WHERE id = ?').get(sessionId).balance;
+    let payout = round.payout;
+    let hitColumns = JSON.parse(round.hit_columns);
     if (shotIndex === round.shot_count) {
       if (round.state !== 'active') { db.exec('ROLLBACK'); return res.status(409).json({ error: 'Game is already complete' }); }
-      const nextCount = round.shot_count + 1; const now = Math.floor(Date.now() / 1000);
+      const seed = crypto.randomBytes(16).toString('hex');
+      const launchSpeed = Math.round(requestedLaunchSpeed * 1000) / 1000;
+      const outcome = simulateShot(seed, launchSpeed);
+      if (outcome.channel == null) {
+        db.exec('ROLLBACK');
+        return res.set('Cache-Control', 'no-store').json({ shotIndex, seed, launchSpeed, reached: false, settled: false });
+      }
+      channels[shotIndex] = outcome.channel;
+      results[shotIndex] = channelNumbers[outcome.channel];
+      seeds[shotIndex] = seed;
+      launchSpeeds[shotIndex] = launchSpeed;
+      ({ hitColumns, payout } = evaluateResults(results));
+      const nextCount = round.shot_count + 1;
+      const now = Math.floor(Date.now() / 1000);
       if (nextCount === 3) {
-        db.prepare("UPDATE game_rounds SET shot_count = 3, state = 'completed', completed_at = ? WHERE id = ?").run(now, round.id);
-        if (round.payout > 0) applyBalanceDelta(sessionId, round.payout, 'win', 'game_round', round.id, { payout: round.payout });
-        balance += round.payout;
-      } else db.prepare('UPDATE game_rounds SET shot_count = ? WHERE id = ?').run(nextCount, round.id);
+        db.prepare("UPDATE game_rounds SET channels = ?, results = ?, payout = ?, hit_columns = ?, shot_seeds = ?, launch_speeds = ?, shot_count = 3, state = 'completed', completed_at = ? WHERE id = ?")
+          .run(JSON.stringify(channels), JSON.stringify(results), payout, JSON.stringify(hitColumns), JSON.stringify(seeds), JSON.stringify(launchSpeeds), now, round.id);
+        if (payout > 0) applyBalanceDelta(sessionId, payout, 'win', 'game_round', round.id, { payout });
+        balance += payout;
+      } else {
+        db.prepare('UPDATE game_rounds SET channels = ?, results = ?, payout = ?, hit_columns = ?, shot_seeds = ?, launch_speeds = ?, shot_count = ? WHERE id = ?')
+          .run(JSON.stringify(channels), JSON.stringify(results), payout, JSON.stringify(hitColumns), JSON.stringify(seeds), JSON.stringify(launchSpeeds), nextCount, round.id);
+      }
     }
     db.exec('COMMIT');
     res.set('Cache-Control', 'no-store').json({
-      shotIndex, channel: channels[shotIndex], value: results[shotIndex], settled: shotIndex === 2,
-      ...(shotIndex === 2 ? { win: round.payout, balance, results, hitColumns } : {})
+      shotIndex,
+      reached: true,
+      seed: seeds[shotIndex],
+      launchSpeed: launchSpeeds[shotIndex],
+      channel: channels[shotIndex],
+      value: results[shotIndex],
+      settled: shotIndex === 2,
+      ...(shotIndex === 2 ? { win: payout, balance, results, hitColumns } : {})
     });
   } catch (error) {
     db.exec('ROLLBACK'); console.error('Ball release failed:', error?.message || error);
@@ -631,7 +664,7 @@ app.get('/api/lnurl/withdraw/status/:k1', rateLimit('withdraw-status', 60, 60), 
   if (state === 'settled' && row.token_rotated_at == null) {
     const marked = db.prepare(`UPDATE lnurl_withdrawals SET token_rotated_at = ?
       WHERE k1 = ? AND token_rotated_at IS NULL`).run(nowSeconds(), req.params.k1);
-    if (marked.changes === 1) rotateGuestToken(sessionId, res);
+    if (marked.changes === 1) rotateGuestToken(sessionId, req, res);
   }
   res.set('Cache-Control', 'no-store').json({ amount: row.amount, state, expiresAt: row.expires_at, balance });
 });
@@ -700,7 +733,7 @@ app.post('/api/withdrawals', rateLimit('withdraw-direct', 600, 3), async (req, r
   const current = db.prepare('SELECT state FROM withdrawals WHERE id = ?').get(withdrawalId);
   const balance = db.prepare('SELECT balance FROM sessions WHERE id = ?').get(sessionId).balance;
   if (current.state === 'settled') {
-    rotateGuestToken(sessionId, res);
+    rotateGuestToken(sessionId, req, res);
     return res.set('Cache-Control', 'no-store').json({ state: 'settled', amount, fee: feeSats, balance });
   }
   if (current.state === 'failed') return res.status(502).json({ error: 'Lightning payment failed; balance restored', balance });
@@ -747,41 +780,57 @@ app.post('/api/deposits', rateLimit('deposit-create', 600, 3), async (req, res) 
   }
 });
 
+async function reconcileDeposit(row) {
+  if (!row || row.state !== 'pending') return false;
+  const invoice = await withNwcLimit(() => walletClient.lookupInvoice({ payment_hash: row.payment_hash }));
+  if (invoice.state !== 'settled') {
+    if (Number(row.expires_at) + 300 <= nowSeconds()) {
+      db.prepare("UPDATE invoices SET state = 'expired' WHERE payment_hash = ? AND state = 'pending'").run(row.payment_hash);
+    }
+    return false;
+  }
+  const valid = invoice.type === 'incoming'
+    && invoice.payment_hash === row.payment_hash
+    && Number(invoice.amount) === Number(row.amount) * 1000;
+  if (!valid) {
+    db.prepare("UPDATE invoices SET state = 'review' WHERE payment_hash = ? AND state = 'pending'").run(row.payment_hash);
+    pausePayouts('deposit provider response mismatch');
+    throw new Error('Deposit requires manual review');
+  }
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const update = db.prepare("UPDATE invoices SET state = 'settled', credited_at = ? WHERE payment_hash = ? AND state = 'pending'")
+      .run(nowSeconds(), row.payment_hash);
+    if (update.changes === 1) {
+      applyBalanceDelta(row.session_id, Number(row.amount), 'deposit', 'invoice', row.payment_hash, { amount: Number(row.amount) });
+    }
+    db.exec('COMMIT');
+    return update.changes === 1;
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
+
+async function recoverPendingDeposits() {
+  const rows = db.prepare("SELECT * FROM invoices WHERE state = 'pending' ORDER BY created_at ASC LIMIT 100").all();
+  let credited = 0;
+  for (const row of rows) {
+    try {
+      if (await reconcileDeposit(row)) credited += 1;
+    } catch (error) {
+      console.error('Deposit recovery failed:', error?.code || error?.message || error);
+    }
+  }
+  return credited;
+}
+
 app.get('/api/deposits/:paymentHash', rateLimit('deposit-status', 60, 60), async (req, res) => {
   try {
     const sessionId = guestSession(req, res);
     const row = db.prepare('SELECT * FROM invoices WHERE payment_hash = ? AND session_id = ?').get(req.params.paymentHash, sessionId);
     if (!row) return res.status(404).json({ error: 'Invoice not found' });
-    const now = nowSeconds();
-    let newlyCredited = false;
-    if (row.state === 'pending' && row.expires_at + 300 > now) {
-      const invoice = await withNwcLimit(() => walletClient.lookupInvoice({ payment_hash: row.payment_hash }));
-      if (invoice.state === 'settled') {
-        const valid = invoice.type === 'incoming'
-          && invoice.payment_hash === row.payment_hash
-          && Number(invoice.amount) === Number(row.amount) * 1000;
-        if (!valid) {
-          db.prepare("UPDATE invoices SET state = 'review' WHERE payment_hash = ? AND state = 'pending'").run(row.payment_hash);
-          pausePayouts('deposit provider response mismatch');
-          throw new Error('Deposit requires manual review');
-        }
-        db.exec('BEGIN IMMEDIATE');
-        try {
-          const update = db.prepare("UPDATE invoices SET state = 'settled', credited_at = ? WHERE payment_hash = ? AND state = 'pending'")
-            .run(nowSeconds(), row.payment_hash);
-          if (update.changes === 1) {
-            applyBalanceDelta(sessionId, Number(row.amount), 'deposit', 'invoice', row.payment_hash, { amount: Number(row.amount) });
-            newlyCredited = true;
-          }
-          db.exec('COMMIT');
-        } catch (error) { db.exec('ROLLBACK'); throw error; }
-      }
-    } else if (row.state === 'pending' && row.expires_at + 300 <= now) {
-      db.prepare("UPDATE invoices SET state = 'expired' WHERE payment_hash = ? AND state = 'pending'").run(row.payment_hash);
-    }
+    const newlyCredited = await reconcileDeposit(row);
     const current = db.prepare('SELECT state, expires_at FROM invoices WHERE payment_hash = ?').get(row.payment_hash);
     const balance = db.prepare('SELECT balance FROM sessions WHERE id = ?').get(sessionId).balance;
-    if (newlyCredited) rotateGuestToken(sessionId, res);
+    if (newlyCredited) rotateGuestToken(sessionId, req, res);
     res.set('Cache-Control', 'no-store').json({ state: current.state, expiresAt: current.expires_at, balance });
   } catch (error) {
     console.error('Deposit lookup failed:', error?.code || error?.message || error);
@@ -879,7 +928,7 @@ app.use('/monitoring', monitoringAuth, (_req, res, next) => { res.set('Cache-Con
   express.static(path.join(root, 'monitoring'), { index: 'index.html', dotfiles: 'deny', fallthrough: false }));
 
 const publicFiles = new Map([
-  ['/', 'index.html'], ['/index.html', 'index.html'], ['/disclaimer.html', 'disclaimer.html'], ['/game.js', 'game.js'], ['/physics.js', 'physics.js'], ['/styles.css', 'styles.css'],
+  ['/', 'index.html'], ['/index.html', 'index.html'], ['/disclaimer.html', 'disclaimer.html'], ['/game.js', 'game.js'], ['/physics.js', 'physics.js'], ['/simulation.js', 'simulation.js'], ['/styles.css', 'styles.css'],
   ['/favicon.svg', 'favicon.svg'], ['/satsball-edit.png', 'satsball-edit.png'],
   ['/satsball-social-card-v2.png', 'satsball-social-card-v2.png']
 ]);
@@ -893,6 +942,7 @@ let server;
 let recoveryTimer;
 let cleanupTimer;
 let solvencyTimer;
+let depositRecoveryTimer;
 
 function verifyFinancialInvariants() {
   const snapshot = monitoringSnapshot();
@@ -912,6 +962,11 @@ function startRuntime(runtimePort = port, runtimeHost = host) {
   recoveryTimer.unref();
   setTimeout(() => void recoverWithdrawals().catch((error) => console.error('Initial withdrawal recovery failed:', error?.message || error)), 1000).unref();
   setTimeout(() => void verifyWalletSolvency(), 2000).unref();
+  if (process.env.NODE_ENV !== 'test') {
+    setTimeout(() => void recoverPendingDeposits(), 1500).unref();
+    depositRecoveryTimer = setInterval(() => void recoverPendingDeposits(), 30000);
+    depositRecoveryTimer.unref();
+  }
   cleanupTimer = setInterval(() => db.prepare('DELETE FROM rate_limits WHERE window_start < ?').run(nowSeconds() - 86400), 3600000);
   cleanupTimer.unref();
   solvencyTimer = setInterval(() => void verifyWalletSolvency(), 60000);
@@ -923,6 +978,7 @@ async function stopRuntime() {
   clearInterval(recoveryTimer);
   clearInterval(cleanupTimer);
   clearInterval(solvencyTimer);
+  clearInterval(depositRecoveryTimer);
   if (server) await new Promise((resolve) => server.close(resolve));
   server = undefined;
   nwc.close();
@@ -940,4 +996,4 @@ if (process.env.NODE_ENV !== 'test') {
   process.once('SIGINT', () => void stopRuntime());
 }
 
-export { app, db, recoverWithdrawals, refundWithdrawal, setWalletClientForTest, settleWithdrawal, startRuntime, stopRuntime, submitWithdrawal, verifyFinancialInvariants, verifyWalletSolvency };
+export { app, db, recoverPendingDeposits, recoverWithdrawals, refundWithdrawal, setWalletClientForTest, settleWithdrawal, startRuntime, stopRuntime, submitWithdrawal, verifyFinancialInvariants, verifyWalletSolvency };
